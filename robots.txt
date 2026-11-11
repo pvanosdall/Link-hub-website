@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+
+# After your domain is set, add a line like:
+# Sitemap: https://YOUR-DOMAIN/sitemap.xml
