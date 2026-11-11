@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Site Admin | Peter Vanosdall</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400&amp;family=Work+Sans:wght@400;500;600&amp;display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/config.js"></script>
+<style>
+  body[data-page="admin"]::after { background: rgba(16,26,31,.55); }
+  .admin { max-width: 40rem; margin: 0 auto; padding-top: calc(env(safe-area-inset-top, 0px) + 2.5rem); display: flex; flex-direction: column; gap: 1rem; }
+  .admin h1 { font-size: 1.9rem; }
+  .code-row { display: flex; gap: .6rem; flex-wrap: wrap; }
+  .code-row input { font: 500 1.4rem/1 var(--font-body); letter-spacing: .35em; width: 9rem; text-align: center; padding: .7rem; border: 1px solid #c4cbce; border-radius: 4px; }
+  .seg { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .seg button { font: 500 .9rem var(--font-body); padding: .5rem .9rem; border-radius: 999px; border: 1px solid #c4cbce; background: #fff; color: var(--ink); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--ocean); border-color: var(--ocean); color: var(--paper); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: .6rem; }
+  .grid button { padding: 0; border: 3px solid transparent; border-radius: 6px; overflow: hidden; cursor: pointer; background: var(--sand); position: relative; aspect-ratio: 4 / 3; max-width: 100%; }
+  .grid button img { width: 100%; height: 100%; object-fit: cover; }
+  .grid button[aria-pressed="true"] { border-color: var(--ocean); }
+  .grid button .live { position: absolute; left: .35rem; bottom: .35rem; font: 600 .68rem var(--font-body); background: var(--paper); color: var(--ink); border-radius: 999px; padding: .15rem .45rem; }
+  .status { font-size: .92rem; min-height: 1.4em; }
+  .status.err { color: #9a3324; }
+  .status.ok { color: var(--ocean-deep); }
+</style>
+</head>
+<body data-page="admin" data-root="../">
+<main class="admin">
+  <section class="paper" id="lock">
+    <h1>Site admin</h1>
+    <p class="intro">Enter your code to change the background photos.</p>
+    <form class="code-row" id="code-form">
+      <label class="sr-only" for="code">Admin code</label>
+      <input id="code" inputmode="numeric" autocomplete="off" maxlength="8" required>
+      <button class="btn btn--ocean" type="submit">Unlock</button>
+    </form>
+    <p class="status" id="lock-status" role="status"></p>
+  </section>
+
+  <section class="paper" id="panel" hidden>
+    <h1>Background photos</h1>
+    <div>
+      <p class="intro" style="margin-bottom:.6rem">Page</p>
+      <div class="seg" id="pages"></div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="code-row" style="align-items:center">
+      <button class="btn btn--ocean" id="save" type="button">Save background</button>
+      <a class="text-link" id="view" href="../" target="_blank" rel="noopener" style="color:var(--ocean);font-weight:600">View page</a>
+    </div>
+    <p class="status" id="save-status" role="status"></p>
+    <p class="note">Changes show for everyone within a few seconds. Visitors who already have the page open see the new photo next time they load it.</p>
+  </section>
+
+  <p style="text-align:center;font-size:.85rem"><a href="../" style="color:var(--mist)">Back to site</a></p>
+</main>
+
+<script>
+(function () {
+  var CFG = window.SITE_CONFIG || {};
+  var PAGES = [["home", "Home", "../"], ["sell", "Sell", "../sell/"], ["about", "About", "../about/"], ["contact", "Contact", "../contact/"], ["newsletter", "Newsletter", "../newsletter/"]];
+  var code = "", page = "home", settings = {}, picked = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function setStatus(el, kind, text) { el.className = "status " + (kind || ""); el.textContent = text; }
+  function bg(name) { document.documentElement.style.setProperty("--bg", 'url("' + new URL("../img/photos/" + name + "-sm.jpg", location.href).href + '")'); }
+  function current(p) { return settings["bg_" + p] || (CFG.DEFAULT_BG || {})[p]; }
+  function post(payload) {
+    return fetch(CFG.API_URL, { method: "POST", body: JSON.stringify(payload) }).then(function (r) { return r.json(); });
+  }
+  bg(current("home"));
+
+  $("code-form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var val = $("code").value.trim();
+    if (!val) { setStatus($("lock-status"), "err", "Enter your code."); return; }
+    if (!CFG.API_URL) { setStatus($("lock-status"), "err", "Connect the Google Sheet first: add your Apps Script URL in assets/config.js."); return; }
+    setStatus($("lock-status"), "", "Checking");
+    post({ action: "checkCode", code: val }).then(function (res) {
+      if (!res.ok) { setStatus($("lock-status"), "err", "That code didn't work. Try again."); return; }
+      code = val; settings = res.settings || {};
+      $("lock").hidden = true; $("panel").hidden = false; render();
+    }).catch(function () { setStatus($("lock-status"), "err", "Couldn't reach the Google Sheet. Check the API URL and your connection."); });
+  });
+
+  function render() {
+    picked = current(page);
+    $("pages").innerHTML = "";
+    PAGES.forEach(function (p) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = p[1]; b.setAttribute("aria-pressed", p[0] === page ? "true" : "false");
+      b.addEventListener("click", function () { page = p[0]; render(); });
+      $("pages").appendChild(b);
+      if (p[0] === page) $("view").href = p[2];
+    });
+    $("grid").innerHTML = "";
+    (CFG.PHOTOS || []).forEach(function (name) {
+      var b = document.createElement("button");
+      b.type = "button"; b.setAttribute("aria-label", name.replace(/-/g, " "));
+      b.setAttribute("aria-pressed", name === picked ? "true" : "false");
+      b.innerHTML = '<img src="../img/thumbs/' + name + '.jpg" alt="">' + (name === current(page) ? '<span class="live">Live</span>' : "");
+      b.addEventListener("click", function () {
+        picked = name; bg(name);
+        $("grid").querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+        setStatus($("save-status"), "", "");
+      });
+      $("grid").appendChild(b);
+    });
+    bg(picked);
+  }
+
+  $("save").addEventListener("click", function () {
+    setStatus($("save-status"), "", "Saving");
+    post({ action: "setBackground", code: code, page: page, photo: picked }).then(function (res) {
+      if (!res.ok) throw new Error(res.error || "failed");
+      settings = res.settings || settings;
+      try { localStorage.setItem("pv_bg_settings", JSON.stringify(settings)); } catch (e) {}
+      setStatus($("save-status"), "ok", "Saved. The " + page + " page now uses this photo.");
+      render();
+    }).catch(function () { setStatus($("save-status"), "err", "Couldn't save. Try again in a moment."); });
+  });
+})();
+</script>
+</body>
+</html>
